@@ -1,0 +1,19 @@
+# Detecting the barcode: More detail #
+
+The barcode is detected in the Push method of the DetectBarcode class in the Barcode library. Push begins by applying a pipeline (see [SequencesAndLadders](SequencesAndLadders.md) for more information on how JJIL implements pipelines) which does the following operations in sequence:
+
+  1. Subsample the image (RgbSubSample).
+  1. Convert RGB pixels to gray (RgbAvg2Gray).
+  1. Histogram equalize (GrayHistEq).
+  1. Compute a measure of the horizontal and vertical contrast of the image (GrayHorizVertContrast).
+  1. Threshold.
+
+It then applies connected components analysis to the result. The bounding boxes of the components larger than a threshold are examined and the one that is closest to a 3-to-4 ratio of height to width is returned as the location of the barcode. If there is no component larger than the threshold then the image is deemed not to contain a barcode.
+The first step, RgbSubSample, is done in an unusual way. Subsampling should be done by applying a filter to the pixels to be subsampled, for example by averaging them. RgbSubSample does not apply a filter; it simply chooses one of the pixels and ignores the rest. This approach is known to cause problems, such as aliasing. (See http://www.cs.cmu.edu/~ph/869/results/heckbert/ms_photo_editor/ for an explanation of the problems this can cause). But we choose a pixel, instead of averaging, for two reasons. First, it is much faster to do it this way. RgbSubSample is the only operation which executes on the original uncropped image. Every operation counts. Second, barcodes contain multiple spatial frequencies, as a result of containing both narrow and wide stripes. Aliasing causes some of these frequencies to get “wrapped” and may create accidental high frequency artifacts. But these artifacts may actually make the barcode easier to detect by creating higher horizontal contrast. There seems to be no good reason to prefer the “correct” way to do subsampling.
+
+RgbAvg2Gray and GrayHistEq are standard image-processing operations, but GrayHorizVertContrast requires explanation. This operation was designed specifically for detecting barcodes. It works by measuring the horizontal and vertical variance of the image in a window around each pixel. The two contrast measures are then multiplied by constants and added together, and the result is divided by a third constant. The window size and constants were determined experimentally by testing a number of images. As demonstrated in the code, the window size is 4 pixels and the contrast measure is
+
+> (horizontal x 2 – vertical x 8) / 3
+
+In other words, we consider a pixel likely to belong to a barcode if it has horizontal contrast and unlikely if it has vertical contrast. We weight the vertical contrast measure four times as heavily as the horizontal contrast; in other words, we expect the vertical lines in a barcode to show very little contrast while other parts of the image (such as background text) might otherwise be confused with barcodes. The division by 3 was done to keep the contrast measure in the range of the data type used here, a 16-bit integer.
+After computing the contrast measure we apply Gray16Threshold to threshold it (again, using an experimentally-determined threshold) and compute the connected components with GrayConnComp. GrayConnComp produces a list of the bounding boxes of the components detected. If any are larger than the minimum threshold set in DetectBarcode’s bounding boxes of the components detected. If any are larger than the minimum threshold set in DetectBarcode’s bounding boxes of the components detected. If any are larger than the minimum threshold set in DetectBarcode’s constructor we choose the one that is closest to a 4-to-3 ratio of height to width. Of course, it is not true that all barcodes are close to this ratio, but it is a common shape and helps to eliminate some misidentifications of background text as the barcode.
